@@ -1,0 +1,94 @@
+"""GUÍA DE CONSULTAS SQL PARA EL BACKEND - PROYECTO AGENSOFT
+================================================================
+
+Este documento contiene las consultas SQL base necesarias para implementar los
+endpoints de la API, basadas en el esquema de la base de datos PostgreSQL.
+
+IMPORTANTE PARA EL DESARROLLADOR BACKEND:
+- La conexión debe apuntar a localhost:5433 (o el puerto definido en el .env).
+- Se recomienda usar "Prepared Statements" ($1, $2, etc.) para evitar Inyección SQL.
+- Las tablas siguen el estándar de nombres definido en el esquema de infraestructura.
+
+----------------------------------------------------------------
+1. MÓDULO DE AUTENTICACIÓN Y PERFIL
+----------------------------------------------------------------
+
+-- Buscar usuario por email (Para el Login)
+-- Retorna el hash de la contraseña para validar en el servidor.
+SELECT id, nombre, email, password, rol_id 
+FROM Usuarios 
+WHERE email = $1;
+
+-- Obtener el Perfil del Paciente vinculado al Usuario logueado
+-- Útil para mostrar datos médicos en el dashboard del cliente.
+SELECT id, nombre_completo, telefono, informacion_medica 
+FROM Pacientes 
+WHERE usuario_id = $1;
+
+----------------------------------------------------------------
+2. MÓDULO DE DISPONIBILIDAD (CALENDARIO)
+----------------------------------------------------------------
+
+-- Listar bloques horarios libres para una fecha específica
+-- Filtra por estado_id = 1 (Pendiente/Disponible).
+SELECT id, hora_inicio, hora_fin 
+FROM Bloques_Calendario 
+WHERE fecha = $1 
+  AND estado_id = 1
+ORDER BY hora_inicio ASC;
+
+----------------------------------------------------------------
+3. MÓDULO DE CITAS (TRANSACCIONAL)
+----------------------------------------------------------------
+
+-- Listar historial de citas de un Paciente
+-- Incluye detalles del horario y nombre del estado actual.
+SELECT 
+    c.id AS cita_id,
+    c.motivo_consulta,
+    b.fecha,
+    b.hora_inicio,
+    e.nombre AS estado_nombre
+FROM Citas c
+JOIN Bloques_Calendario b ON c.bloque_id = b.id
+JOIN Estados_Cita e ON c.estado_id = e.id
+WHERE c.paciente_id = $1
+ORDER BY b.fecha DESC, b.hora_inicio DESC;
+
+-- CREACIÓN DE UNA CITA (Lógica de Negocio)
+-- Paso A: Insertar la cita.
+INSERT INTO Citas (paciente_id, bloque_id, motivo_consulta, estado_id) 
+VALUES ($1, $2, $3, 2) -- El estado 2 suele ser 'Aceptada/Agendada'
+RETURNING id;
+
+-- Paso B: Actualizar el bloque de calendario para que ya no aparezca disponible.
+UPDATE Bloques_Calendario 
+SET estado_id = 2 
+WHERE id = $2;
+
+----------------------------------------------------------------
+4. MÓDULO DE ADMINISTRACIÓN (DASHBOARD CLÍNICO)
+----------------------------------------------------------------
+
+-- Ver todas las citas agendadas para el día de hoy (o una fecha X)
+-- Retorna información del paciente para contacto rápido.
+SELECT 
+    c.id AS cita_id,
+    p.nombre_completo AS paciente_nombre,
+    p.telefono,
+    b.hora_inicio,
+    c.motivo_consulta,
+    e.nombre AS estado
+FROM Citas c
+JOIN Pacientes p ON c.paciente_id = p.id
+JOIN Bloques_Calendario b ON c.bloque_id = b.id
+JOIN Estados_Cita e ON c.estado_id = e.id
+WHERE b.fecha = $1
+ORDER BY b.hora_inicio ASC;
+
+----------------------------------------------------------------
+5. CONFIGURACIÓN DE SEMILLAS (PARA PRUEBAS)
+----------------------------------------------------------------
+Si necesitas restablecer datos, usa los scripts en:
+/db-init/02-seeds.sql
+"""
